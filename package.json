@@ -1,0 +1,20 @@
+{
+  "name": "forummind",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.7.0",
+  "scripts": {
+    "dev:web": "pnpm --filter web dev",
+    "dev:api": "uv run --directory apps/api uvicorn app.main:app --reload --port 8000",
+    "dev:api:e2e": "uv run --directory apps/api uvicorn app.main:app --port 8000",
+    "build:pi-runtime": "pnpm --filter pi-runtime build",
+    "test:pi-runtime": "pnpm --filter pi-runtime test",
+    "dev:pi-runtime": "pnpm --filter pi-runtime start",
+    "test:e2e": "playwright test --config changes/frontend/验收与材料模块/playwright.config.ts",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.51.1"
+  }
+}

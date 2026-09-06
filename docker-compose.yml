@@ -1,0 +1,78 @@
+# ForumMind 本地一键编排：web（Next.js 前端）+ api（FastAPI 后端）。
+# 用法（在仓库根目录）：
+#   docker compose up --build -d   # 构建镜像并后台启动两个服务
+#   docker compose down            # 停止并移除容器
+#
+# 设计约束（changes/design.md §1 / §7.3 / §8.2）：
+#   - 仅编排业务服务 web 与 api，不包含 PostgreSQL/Redis/MinIO/Agent/LLM 服务。
+#   - 前端健康检查由浏览器端发起（fetch ${NEXT_PUBLIC_API_BASE_URL}/health），
+#     因此 NEXT_PUBLIC_API_BASE_URL 是构建期 ARG（next build 时内联进客户端 bundle），
+#     不在运行期 environment 中设置；浏览器经主机端口 8000 直接访问 API。
+#   - 运行期 environment 仅含 api 容器实际消费的变量（ENVIRONMENT / CORS_ORIGINS，
+#     均为 os.getenv 读取），未设置时使用下方默认值；API_HOST / API_PORT 为文档契约，
+#     容器内不消费（见 §8.2 环境变量安全）。
+
+services:
+  pi-runtime:
+    build:
+      context: .
+      dockerfile: apps/pi-runtime/Dockerfile
+    expose:
+      - "8010"
+    environment:
+      PI_RUNTIME_HOST: 0.0.0.0
+      PI_RUNTIME_PORT: 8010
+      PI_RUNTIME_TOKEN: ${PI_RUNTIME_TOKEN:?PI_RUNTIME_TOKEN is required}
+      PI_PROVIDER: ${PI_PROVIDER:-openai-compatible}
+      PI_MODEL: ${PI_MODEL:?PI_MODEL is required}
+      PI_API_KEY: ${PI_API_KEY:-}
+      PI_BASE_URL: ${PI_BASE_URL:-}
+      PI_CONTROL_PLANE_URL: http://api:8000
+      PI_SESSION_ROOT: /var/lib/forummind/pi-sessions
+      PI_MAX_CONCURRENCY_PER_GROUP: ${PI_MAX_CONCURRENCY_PER_GROUP:-2}
+      PI_MAX_TOOL_CALLS_PER_RUN: ${PI_MAX_TOOL_CALLS_PER_RUN:-24}
+      PI_MAX_RESULT_BYTES: ${PI_MAX_RESULT_BYTES:-65536}
+      PI_MAX_REQUEST_BYTES: ${PI_MAX_REQUEST_BYTES:-262144}
+      PI_MAX_SSE_BUFFER: ${PI_MAX_SSE_BUFFER:-256}
+      PI_PROMPT_TIMEOUT_MS: ${PI_PROMPT_TIMEOUT_MS:-120000}
+    volumes:
+      - pi_sessions:/var/lib/forummind/pi-sessions
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8010/health', {headers: {'X-ForumMind-Runtime-Token': process.env.PI_RUNTIME_TOKEN}}).then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # --- 后端 API（FastAPI + uvicorn，容器内监听 0.0.0.0:8000） ---
+  api:
+    build:
+      context: ./apps/api
+    container_name: forummind-api
+    ports:
+      - "8000:8000"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      AGENT_RUNTIME: ${AGENT_RUNTIME:-replay}
+      PI_RUNTIME_URL: http://pi-runtime:8010
+      PI_RUNTIME_TOKEN: ${PI_RUNTIME_TOKEN:?PI_RUNTIME_TOKEN is required}
+      PI_MODEL: ${PI_MODEL:-}
+    depends_on:
+      pi-runtime:
+        condition: service_healthy
+
+  # --- 前端 Web（Next.js，next start 监听 0.0.0.0:3000） ---
+  web:
+    build:
+      context: ./apps/web
+      args:
+        # 构建期注入客户端 bundle 的 API 基地址（浏览器可访问的主机映射地址）
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+    container_name: forummind-web
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  pi_sessions:

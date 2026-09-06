@@ -1,0 +1,25 @@
+# 虚拟环境
+.venv/
+.uv/
+
+# Python 字节码与缓存
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 环境变量与密钥（绝不进镜像，design.md §8.4）
+.env
+.env.*
+
+# 本地缓存与构建产物
+*.log
+*.egg-info/
+build/
+dist/
+.coverage
+htmlcov/
+
+# 测试不需要进入镜像（保持构建上下文最小）
+tests/
